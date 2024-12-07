@@ -8,8 +8,13 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class IdentifyUniquePersion {
     public static void main(String[] args) {
@@ -37,12 +42,16 @@ public class IdentifyUniquePersion {
             int checkDateColIndex = getColumnIndex(headerRow, "检查日期");
             int ageColIndex = getColumnIndex(headerRow, "年龄");
 
-            // 添加一个新的列：出生年份
+            // 新增：出生年份列
             int birthYearColIndex = headerRow.getPhysicalNumberOfCells();
             headerRow.createCell(birthYearColIndex).setCellValue("出生年份");
 
-            // 添加GroupID列
-            int groupIdColIndex = birthYearColIndex + 1;
+            // 新增：最开始开始检查 至 最后结束检查 间隔月列
+            int checkInternalColIndex = birthYearColIndex + 1;
+            headerRow.createCell(checkInternalColIndex).setCellValue("检查间隔月数");
+
+            // 新增：GroupID列，用于分组
+            int groupIdColIndex = birthYearColIndex + 2;
             headerRow.createCell(groupIdColIndex).setCellValue("GroupID");
 
             // 处理数据行
@@ -56,6 +65,8 @@ public class IdentifyUniquePersion {
                 String name = getCellValue(row, nameColIndex);
                 // 手机号列
                 String phoneNumber = getCellValue(row, phoneNumberColIndex);
+                // 获取检查日期的List
+                List<String> checkDateList = new ArrayList<>();
 
                 // 【2】、如果当前行没有分配组号，则给它分配一个新的组号；如果已经设置了组号，则无需处理
                 if (row.getCell(groupIdColIndex) == null || row.getCell(groupIdColIndex).getCellType() == CellType.BLANK) {
@@ -66,7 +77,7 @@ public class IdentifyUniquePersion {
 
                 /**
                  * 【3】、处理”其他“列数据，规则如下：
-                 * 如果其他列不为空，按照规则处理数据:
+                 * 如果其他列不为空，按照规则处理数据：
                  * 有HC2字眼，U列检测方法 写HC2，W列 定量 写 冒号后面的数值，抽取规则为：
                  * 如果包含HC2字眼，那么以：拆分，冒号后面的内容作为值，分别填充入：
                  */
@@ -75,7 +86,11 @@ public class IdentifyUniquePersion {
 
                 // 【4】、检查日期处理
                 String checkDateStr = getCellValue(row, checkDateColIndex);
+                // 检查为年月日的格式
                 String checkDateRegex = "^\\d{4}-\\d{2}-\\d{2}$";
+                if (checkDateStr.matches(checkDateRegex)) {
+                    checkDateList.add(checkDateStr);
+                }
 
                 // 【5】、年龄处理
                 String ageStr = getCellValue(row, ageColIndex);
@@ -99,7 +114,7 @@ public class IdentifyUniquePersion {
                     } catch (Exception e) {
                         // TODO
                     }
-                    // 设置出生年列 为 正常 出生年月
+                    // 设置出生年列 为 正常 出生年
                     row.createCell(birthYearColIndex).setCellValue(birthYear);
                 } else {
                     // 设置出生年列 为 -1
@@ -155,6 +170,11 @@ public class IdentifyUniquePersion {
                         //  【7.5.2】、如果名字相同 并且 出生日期想差不超过2岁，那么设置同样的currentGroupId；如果检查日期不合法，则判断手机号，手机号如果一致，也可视为同一人
                         if (otherName.equals(name) && Math.abs(birthYear - otherBirthYear) <= 2) {
                             otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+
+                            // 如果此时为同一人，记录此时的检查日期（注意时间格式）
+                            if (otherCheckDate.matches(checkDateRegex)) {
+                                checkDateList.add(otherCheckDate);
+                            }
                         } else {
                             if (StringUtils.isNotBlank(phoneNumber) && StringUtils.isNotBlank(otherPhoneNumber)) {
                                 if (phoneNumber.equals(otherPhoneNumber)) {
@@ -167,10 +187,20 @@ public class IdentifyUniquePersion {
                         if (StringUtils.isNotBlank(phoneNumber) && StringUtils.isNotBlank(otherPhoneNumber)) {
                             if (phoneNumber.equals(otherPhoneNumber)) {
                                 otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+
+                                // 如果此时为同一人，记录此时的检查日期（注意时间格式）
+                                if (otherCheckDate.matches(checkDateRegex)) {
+                                    checkDateList.add(otherCheckDate);
+                                }
                             }
                         }
                     }
                 }
+
+                // 如果此时获得了合格的时间格式，那么设置checkInternalColIndex列的值为:checkDateList中最大值减去最小值的月份间隔
+                int intervals = calculateMonths(checkDateList);
+                Cell intervalCell = row.createCell(checkInternalColIndex);
+                intervalCell.setCellValue(intervals);
 
                 currentGroupId++;
             }
@@ -238,6 +268,7 @@ public class IdentifyUniquePersion {
      * 如果包含HC2字眼，那么以：拆分，冒号后面的内容作为值，分别填充入：
      */
     private static void setOtherCellValue(String otherColumnValue, Row row, int detectionMethodColIndex, int quantitativeColIndex) {
+        // TODO 如果detectionMethodColIndex、quantitativeColIndex有值，则表示已经处理过，可直接return
         if (!"".equals(otherColumnValue)) {
 
             if (otherColumnValue.contains("HC2")) {
@@ -282,5 +313,30 @@ public class IdentifyUniquePersion {
             }
         }
 
+    }
+
+    /**
+     * 计算最大年月日和最小年月日的月份间隔
+     *
+     * @param dateList 收集的年份数据
+     */
+    private static int calculateMonths(List<String> dateList) {
+
+        if (dateList.size() == 0 || dateList.size() == 1) return 0;
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+        // 将日期字符串转换为 LocalDate 列表并排序
+        List<LocalDate> dates = dateList.stream()
+                .map(dateStr -> LocalDate.parse(dateStr, formatter))  // 将字符串转换为 LocalDate
+                .sorted()  // 按照日期升序排序
+                .collect(Collectors.toList());
+
+        // 获取最小和最大日期
+        LocalDate minDate = dates.get(0);
+        LocalDate maxDate = dates.get(dates.size() - 1);
+
+        // 计算最小日期和最大日期之间的月份差
+        return (maxDate.getYear() - minDate.getYear()) * 12 + maxDate.getMonthValue() - minDate.getMonthValue();
     }
 }
