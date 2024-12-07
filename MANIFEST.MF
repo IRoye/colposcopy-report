@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: read2Excel.ConvertToExcel
+Class-path: lib/commons-lang3-3.7.jar lib/poi-3.17.jar
+
