@@ -1,6 +1,7 @@
 package report;
 
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
@@ -23,8 +24,11 @@ public class IdentifyUniquePersion {
             Iterator<Row> rowIterator = sheet.iterator();
 
             Row headerRow = rowIterator.next();
+
+            // 提前计算各列index
             int numberColIndex = getColumnIndex(headerRow, "编号");
             int nameColIndex = getColumnIndex(headerRow, "姓名");
+            int phoneNumberColIndex = getColumnIndex(headerRow, "联系电话");
             int otherColIndex = getColumnIndex(headerRow, "其他");
             int detectionMethodColIndex = getColumnIndex(headerRow, "检测方法");
             int quantitativeColIndex = getColumnIndex(headerRow, "定量");
@@ -32,7 +36,6 @@ public class IdentifyUniquePersion {
             // 日期和年龄需要做特别处理，因为数据不合规
             int checkDateColIndex = getColumnIndex(headerRow, "检查日期");
             int ageColIndex = getColumnIndex(headerRow, "年龄");
-
 
             // 添加一个新的列：出生年份
             int birthYearColIndex = headerRow.getPhysicalNumberOfCells();
@@ -47,77 +50,88 @@ public class IdentifyUniquePersion {
 
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
                 Row row = sheet.getRow(i);
-                String name = getCellValue(row, nameColIndex);
 
-                // 【1】、获取其他列的值
-                String otherStr = getCellValue(row, otherColIndex);
+                // 【1】、获取基本信息
+                // 姓名列
+                String name = getCellValue(row, nameColIndex);
+                // 手机号列
+                String phoneNumber = getCellValue(row, phoneNumberColIndex);
+
+                // 【2】、如果当前行没有分配组号，则给它分配一个新的组号；如果已经设置了组号，则无需处理
+                if (row.getCell(groupIdColIndex) == null || row.getCell(groupIdColIndex).getCellType() == CellType.BLANK) {
+                    row.createCell(groupIdColIndex).setCellValue(currentGroupId); // 在第三列创建组号
+                } else {
+                    continue;
+                }
 
                 /**
+                 * 【3】、处理”其他“列数据，规则如下：
                  * 如果其他列不为空，按照规则处理数据:
                  * 有HC2字眼，U列检测方法 写HC2，W列 定量 写 冒号后面的数值，抽取规则为：
                  * 如果包含HC2字眼，那么以：拆分，冒号后面的内容作为值，分别填充入：
                  */
+                String otherStr = getCellValue(row, otherColIndex);
                 setOtherCellValue(otherStr, row, detectionMethodColIndex, quantitativeColIndex);
 
-                // 【2】、检查日期处理
+                // 【4】、检查日期处理
                 String checkDateStr = getCellValue(row, checkDateColIndex);
                 String checkDateRegex = "^\\d{4}-\\d{2}-\\d{2}$";
 
-                // 【3】、年龄处理
+                // 【5】、年龄处理
                 String ageStr = getCellValue(row, ageColIndex);
                 String ageWithoutSuffix = ageStr.replace("岁", "");
                 String ageRegex = "^[1-9]\\d*$";
                 int currentAge = -1;
-                // 检查年龄是否为数字
+                // 判断年龄是否为合法数字
                 if (ageWithoutSuffix.matches(ageRegex)) {
                     currentAge = Integer.parseInt(ageWithoutSuffix);
                 }
 
-                // 【4】、根据检查日期和年龄，计算出生年，随后根据出生年和姓名判断是否为同一个人
+                // 【6】、如果检查日期 和 年龄都为合法，继续计算出生年月，否则无意义
                 int birthYear = -1;
-                try {
-                    // 转换检查日期为年份
-                    int checkYear = getYearFromDate(checkDateStr);
-                    birthYear = checkYear - currentAge;
-                } catch (Exception e) {
-                    // TODO
+                if (checkDateStr.matches(checkDateRegex) && currentAge != -1) {
+                    // 【5.1】、根据检查日期和年龄，计算出生年，随后根据出生年和姓名判断是否为同一个人
+                    birthYear = -1;
+                    try {
+                        // 转换检查日期为年份
+                        int checkYear = getYearFromDate(checkDateStr);
+                        birthYear = checkYear - currentAge;
+                    } catch (Exception e) {
+                        // TODO
+                    }
+                    // 设置出生年列 为 正常 出生年月
+                    row.createCell(birthYearColIndex).setCellValue(birthYear);
+                } else {
+                    // 设置出生年列 为 -1
+                    row.createCell(birthYearColIndex).setCellValue(-1);
                 }
-                // 设置出生年列
-                row.createCell(birthYearColIndex).setCellValue(birthYear);
 
-                // 【5】、如果当前行没有分配组号，则给它分配一个新的组号
-                if (row.getCell(groupIdColIndex) == null || row.getCell(groupIdColIndex).getCellType() == CellType.BLANK) {
-                    row.createCell(groupIdColIndex).setCellValue(currentGroupId); // 在第三列创建组号
-                }
-
-
+                /**
+                 *
+                 * 【7】、根据sheet.getRow(i)，继续遍历判断后续数据（目前数据只能遍历），是否和sheet.getRow(i)为同一个人，若为同一个人，使用同一个currentGroupId
+                 *  判断依据：
+                 *  ”姓名相同并且出生年月相差2岁“ 或者 ”手机号相同“，则视为同一个人
+                 */
                 for (int j = i + 1; j < sheet.getPhysicalNumberOfRows(); j++) {
-                    // 获取当前行
+                    // 【7.1】、获取当前行
                     Row otherRow = sheet.getRow(j);
+
+                    // 【7.2】、若当前行已经设置了组号，表示已经进行过了处理，则略过即可
+                    if (otherRow.getCell(groupIdColIndex) != null && otherRow.getCell(groupIdColIndex).getCellType() != CellType.BLANK) {
+                        continue;
+                    }
 
                     String otherOtherStr = getCellValue(otherRow, otherColIndex);
                     setOtherCellValue(otherOtherStr, otherRow, detectionMethodColIndex, quantitativeColIndex);
 
-                    // 如果当前行不为null，说明已经设置了-1或者正常的组值，直接略过判断
-                    if (otherRow.getCell(groupIdColIndex) != null) {
-                        // TODO
-                    }
-
-                    // 获取另一个人的姓名
+                    // 【7.3】、获取基本信息
                     String otherName = getCellValue(otherRow, nameColIndex);
+                    String otherPhoneNumber = getCellValue(otherRow, phoneNumberColIndex);
 
-                    // 获取另一个人的检查日期
+                    // 【7.4】、获取另一个人的检查日期
                     String otherCheckDate = getCellValue(otherRow, checkDateColIndex);
-                    // 判断日期格式是否匹配
-                    if (!otherCheckDate.matches(checkDateRegex)) {
-                        otherCheckDate = "-1";
-                    }
-                    // 非法检查日期，跳过改行
-                    if (otherCheckDate.equals("-1")) {
-                        otherRow.createCell(groupIdColIndex).setCellValue(-1);
-                    }
 
-                    // 年龄处理，非法内容使用-1
+                    // 【7.5】、年龄处理，非法内容使用-1
                     String otherAgeStr = getCellValue(otherRow, ageColIndex);
                     String otherAgeWithoutSuffix = otherAgeStr.replace("岁", "");
                     int otherCurrentAge = -1;
@@ -125,29 +139,36 @@ public class IdentifyUniquePersion {
                         otherCurrentAge = Integer.parseInt(otherAgeWithoutSuffix);
                     }
 
-                    // 非法年龄，跳过该行
-                    if (otherCurrentAge == -1) {
-                        otherRow.createCell(groupIdColIndex).setCellValue(-1);
-                    }
-
-                    // 处理出生年
-                    int otherBirthYear = -1;
-                    try {
-                        // 转换检查日期为年份
-                        int checkYear = getYearFromDate(otherCheckDate);
-                        otherBirthYear = checkYear - otherCurrentAge;
-                    } catch (Exception e) {
-                        // TODO
-                    }
-                    if (otherBirthYear != -1) {
+                    // 【7.5】、如果检查日期 和 年龄都为合法，继续计算出生年月，否则无意义；
+                    if (otherCheckDate.matches(checkDateRegex) && otherCurrentAge != -1) {
+                        // 【7.5.1】、处理出生年
+                        int otherBirthYear = -1;
+                        try {
+                            // 转换检查日期为年份
+                            int checkYear = getYearFromDate(otherCheckDate);
+                            otherBirthYear = checkYear - otherCurrentAge;
+                        } catch (Exception e) {
+                            // TODO
+                        }
                         otherRow.createCell(birthYearColIndex).setCellValue(otherBirthYear);
-                    } else {
-                        // TODO
-                    }
 
-                    // 如果名字相同 并且 出生日期想差不超过2岁，那么设置同样的currentGroupId
-                    if (otherName.equals(name) && Math.abs(birthYear - otherBirthYear) <= 2 ) {
-                        otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+                        //  【7.5.2】、如果名字相同 并且 出生日期想差不超过2岁，那么设置同样的currentGroupId；如果检查日期不合法，则判断手机号，手机号如果一致，也可视为同一人
+                        if (otherName.equals(name) && Math.abs(birthYear - otherBirthYear) <= 2) {
+                            otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+                        } else {
+                            if (StringUtils.isNotBlank(phoneNumber) && StringUtils.isNotBlank(otherPhoneNumber)) {
+                                if (phoneNumber.equals(otherPhoneNumber)) {
+                                    otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+                                }
+                            }
+                        }
+                    } else {
+                        // 【7.6】、如果检查日期不合法，则判断手机号，手机号如果一致，也可视为同一人
+                        if (StringUtils.isNotBlank(phoneNumber) && StringUtils.isNotBlank(otherPhoneNumber)) {
+                            if (phoneNumber.equals(otherPhoneNumber)) {
+                                otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+                            }
+                        }
                     }
                 }
 
@@ -221,25 +242,42 @@ public class IdentifyUniquePersion {
 
             if (otherColumnValue.contains("HC2")) {
                 // 检测方法列
-                System.out.println(otherColumnValue);
-                System.out.println(detectionMethodColIndex);
                 Cell detectionMethodCell = row.getCell(detectionMethodColIndex);
+                if (detectionMethodCell == null) {
+                    row.createCell(detectionMethodColIndex).setCellValue("");
+                    detectionMethodCell = row.getCell(detectionMethodColIndex);
+                }
+
                 // 定量列
                 Cell quantitativeCell = row.getCell(quantitativeColIndex);
-                detectionMethodCell.setCellValue("HC2");
+                if (quantitativeCell == null) {
+                    row.createCell(quantitativeColIndex).setCellValue("");
+                    quantitativeCell = row.getCell(quantitativeColIndex);
+                }
+
+                // 检测方法列固定设置HC2
+                try {
+                    detectionMethodCell.setCellValue("HC2");
+                } catch (Exception e) {
+                    System.out.printf("错误记录，otherColumnValue：%s， detectionMethodColIndex：%d， quantitativeColIndex：%d \n", otherColumnValue, detectionMethodColIndex, quantitativeColIndex);
+                }
 
                 /**
                  * 外院：HPV(-)
                  * HC2_HPV:1103.32
                  * 格式明显不一样
                  */
+                System.out.printf("抽取的值：%s \n", otherColumnValue);
                 if (otherColumnValue.contains("：")) {
-
-                    quantitativeCell.setCellValue(otherColumnValue.split("：")[1]);
+                    // 可能有分隔，但是没值的情况
+                    String[] values = otherColumnValue.split("：");
+                    quantitativeCell.setCellValue(values.length > 1 ? otherColumnValue.split("：")[1] : "");
                 }
 
                 if (otherColumnValue.contains(":")) {
-                    quantitativeCell.setCellValue(otherColumnValue.split(":")[1]);
+                    // 可能有分隔，但是没值的情况
+                    String[] values = otherColumnValue.split(":");
+                    quantitativeCell.setCellValue(values.length > 1 ? otherColumnValue.split(":")[1] : "");
                 }
             }
         }
