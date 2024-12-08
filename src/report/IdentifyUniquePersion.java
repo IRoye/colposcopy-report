@@ -29,6 +29,8 @@ public class IdentifyUniquePersion {
         // Excel文件路径
         String inputFile = "/Users/royeyu/Downloads/HPV20240626.xlsx";  // 替换为实际文件路径
         String outputFile = "/Users/royeyu/Downloads/grouped_patients_data.xlsx";
+//        String inputFile = "/Users/royeyu/Downloads/test1.xlsx";  // 替换为实际文件路径
+//        String outputFile = "/Users/royeyu/Downloads/test2.xlsx";
 
         try {
             Workbook book = new XSSFWorkbook(inputFile);
@@ -75,22 +77,6 @@ public class IdentifyUniquePersion {
                 String phoneNumber = getCellValue(row, phoneNumberColIndex);
                 // 获取检查日期的List
                 List<String> checkDateList = new ArrayList<>();
-
-
-                /**
-                 * 【2】、设置HPV类型和HPV的类型值，这是每一行都需要设置，除非没有这一列
-                 * HPV类型
-                 * 有16 12 +字眼，Y列写阳性的型号，CT值就是对应那个值，依次类推
-                 * 6，11，16、18，26，31、33、35、39、40、42、43、45、51、52、53，54、56、58、59、61、66、68、70、72、73、81、82    E6/E7
-                 */
-
-                // 【2.1】、额外增加HPV类型列和类型值列
-//                for (HpvTypes hpv : HpvTypes.values()) {
-//
-//                }
-
-                // 【2.2】、解析其他列，对解析到的值，赋值到对应列
-
 
                 // 【3】、如果当前行没有分配组号，则给它分配一个新的组号；如果已经设置了组号，则表明已经被分到了目标组，无需进行判断
                 if (row.getCell(groupIdColIndex) == null || row.getCell(groupIdColIndex).getCellType() == CellType.BLANK) {
@@ -203,6 +189,10 @@ public class IdentifyUniquePersion {
                             if (StringUtils.isNotBlank(phoneNumber) && StringUtils.isNotBlank(otherPhoneNumber)) {
                                 if (phoneNumber.equals(otherPhoneNumber)) {
                                     otherRow.createCell(groupIdColIndex).setCellValue(currentGroupId);
+
+                                    if (otherCheckDate.matches(checkDateRegex)) {
+                                        checkDateList.add(otherCheckDate);
+                                    }
                                 }
                             }
                         }
@@ -225,6 +215,7 @@ public class IdentifyUniquePersion {
                 }
 
                 // 如果此时获得了合格的时间格式，那么设置checkInternalColIndex列的值为:checkDateList中最大值减去最小值的月份间隔
+                System.out.println(checkDateList);
                 int intervals = calculateMonths(checkDateList);
                 Cell intervalCell = row.createCell(checkInternalColIndex);
                 intervalCell.setCellValue(intervals);

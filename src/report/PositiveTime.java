@@ -60,13 +60,21 @@ public class PositiveTime {
             int positiveTimeColIndex = headerRow.getPhysicalNumberOfCells();
             headerRow.createCell(positiveTimeColIndex).setCellValue("HPV阳性时间");
 
-            // 新增列：病理号
+            // 新增列：病理
             int pathologyColIndex = positiveTimeColIndex + 1;
-            headerRow.createCell(pathologyColIndex).setCellValue("病理号");
+            headerRow.createCell(pathologyColIndex).setCellValue("病理");
+
+            // 新增列：病理号
+            int pathologyNumberColIndex = positiveTimeColIndex + 2;
+            headerRow.createCell(pathologyNumberColIndex).setCellValue("病理号");
 
             // 新增列：TCT
-            int tctColIndex = positiveTimeColIndex + 2;
+            int tctColIndex = positiveTimeColIndex + 3;
             headerRow.createCell(tctColIndex).setCellValue("TCT");
+
+            // 新增列：术后
+            int afterSurColIndex = positiveTimeColIndex + 4;
+            headerRow.createCell(afterSurColIndex).setCellValue("术后");
 
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
                 Row row = sheet.getRow(i);
@@ -117,13 +125,11 @@ public class PositiveTime {
                     }
                 }
 
-                // 【2】、处理病理号 CIN1 CIN2 CIN3 CIN2-3 LSIL HSIL
+                // 【2】、处理病理 CIN1 CIN2 CIN3 CIN2-3 LSIL HSIL
                 String caseAttributesData = getCellValue(row, caseAttributesColIndex);
                 if (caseAttributesData != null) {
-
                     Pattern pattern = Pattern.compile("(CIN1|CIN2|CIN2-3?|CIN3|LSIL|HSIL)");
                     Matcher matcher = pattern.matcher(caseAttributesData);
-
                     List<String> list = new ArrayList<>();
 
                     while (matcher.find()) {
@@ -145,7 +151,19 @@ public class PositiveTime {
                     }
                 }
 
-                // 【3】、宫颈细胞学结果
+                // 【3】、处理病理号
+                if (caseAttributesData != null) {
+                    Pattern pattern = Pattern.compile("\\d{4,}(\\.\\d+)?");
+                    Matcher matcher = pattern.matcher(caseAttributesData);
+
+                    if (matcher.find()) {
+                        // 提取到的数字
+                        String numberStr = matcher.group();
+                        row.createCell(pathologyNumberColIndex).setCellValue(numberStr);
+                    }
+                }
+
+                // 【4】、宫颈细胞学结果
                 String cellResultData = getCellValue(row, cellResultColIndex);
                 if (cellResultData != null) {
 
@@ -170,6 +188,41 @@ public class PositiveTime {
                     List<String> uniqueList = new ArrayList<>(set);
 
                     row.createCell(tctColIndex).setCellValue(String.join(",", uniqueList));
+                }
+
+                // 【5】、术后
+                if (confirmDate.contains("术后")) {
+
+                    Pattern pattern = Pattern.compile("术后(\\d+)(天|月|年半|年)");
+                    Matcher matcher = pattern.matcher(confirmDate);
+
+                    // 查找并打印匹配到的内容
+                    while (matcher.find()) {
+
+                        String value = matcher.group(1);
+                        String unit = matcher.group(2);
+
+                        int month = -1;
+                        // 将其计算为月份：
+
+                        if ("年半".equals(unit)) {
+                            month = Math.round(Integer.parseInt(value) * 12) + 6;
+                        }
+                        if ("年".equals(unit)) {
+                            month = Math.round(Integer.parseInt(value) * 12);
+                        }
+
+                        if ("月".equals(unit)) {
+                            month = Integer.parseInt(value);
+                        }
+
+                        if ("天".equals(unit)) {
+                            month = Math.round(Integer.parseInt(value) / 30);
+                        }
+
+                        // 写入对应列
+                        row.createCell(afterSurColIndex).setCellValue(month);
+                    }
                 }
             }
 

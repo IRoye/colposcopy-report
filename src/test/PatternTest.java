@@ -8,19 +8,18 @@ import java.util.regex.Pattern;
 public class PatternTest {
 
     public static void main(String[] args) {
-        String input = "xxxxCIN2 CIN3xxx HSIL";  // 示例输入
+        String str = "的味道得我12000.2先休息22";
 
-        // 正则表达式，匹配 CIN1、CIN2、CIN3、CIN2-3、LSIL、HSIL
-        Pattern pattern = Pattern.compile("(CIN1|CIN2|CIN2-3?|CIN3|LSIL|HSIL)");
-        Matcher matcher = pattern.matcher(input);
+        // 使用正则表达式来提取至少 4 位的数字，不允许负数
+        Pattern pattern = Pattern.compile("\\d{4,}(\\.\\d+)?");
+        Matcher matcher = pattern.matcher(str);
 
-        while (matcher.find()) {
-            // 遍历所有捕获的分组
-            for (int i = 1; i <= matcher.groupCount(); i++) {
-                // 获取每个捕获分组的值
-                String groupValue = matcher.group(i);
-                System.out.println(groupValue);
-            }
+        if (matcher.find()) {
+            // 提取到的数字
+            String numberStr = matcher.group();
+            System.out.println("提取到的数字是: " + numberStr);
+        } else {
+            System.out.println("没有找到数字");
         }
     }
 
